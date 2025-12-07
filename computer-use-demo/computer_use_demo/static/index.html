@@ -1,0 +1,245 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Computer Use Demo</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, 'Open Sans', 'Helvetica Neue', sans-serif;
+            margin: 0;
+            padding: 0;
+            display: flex;
+            height: 100vh;
+            background-color: #f0f2f5;
+        }
+        #chat-container {
+            width: 400px;
+            display: flex;
+            flex-direction: column;
+            border-right: 1px solid #ccc;
+            background-color: white;
+        }
+        #chat-history {
+            flex: 1;
+            overflow-y: auto;
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            gap: 15px;
+        }
+        #input-area {
+            padding: 20px;
+            border-top: 1px solid #eee;
+            background-color: #fafafa;
+        }
+        #message-input {
+            width: 100%;
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            resize: none;
+            box-sizing: border-box;
+        }
+        #send-btn {
+            margin-top: 10px;
+            width: 100%;
+            padding: 10px;
+            background-color: #007bff;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            font-weight: bold;
+        }
+        #send-btn:hover {
+            background-color: #0056b3;
+        }
+        #vnc-container {
+            flex: 1;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            background-color: #2c3e50;
+            padding: 20px;
+        }
+        iframe {
+            width: 1024px;
+            height: 768px;
+            border: none;
+            box-shadow: 0 0 20px rgba(0,0,0,0.3);
+            background-color: black;
+        }
+        .message {
+            max-width: 80%;
+            padding: 10px 15px;
+            border-radius: 15px;
+            font-size: 14px;
+            line-height: 1.4;
+        }
+        .user-message {
+            align-self: flex-end;
+            background-color: #007bff;
+            color: white;
+        }
+        .bot-message {
+            align-self: flex-start;
+            background-color: #e9ecef;
+            color: #333;
+        }
+        .tool-output {
+            align-self: flex-start;
+            background-color: #f8f9fa;
+            border: 1px solid #dee2e6;
+            color: #666;
+            font-family: monospace;
+            white-space: pre-wrap;
+            font-size: 12px;
+            width: 100%;
+        }
+        .error-message {
+            color: red;
+            font-weight: bold;
+            text-align: center;
+            padding: 10px;
+        }
+    </style>
+</head>
+<body>
+    <div id="chat-container">
+        <div id="chat-history"></div>
+        <div id="input-area">
+            <textarea id="message-input" rows="3" placeholder="Type a message..."></textarea>
+            <button id="send-btn">Send</button>
+        </div>
+    </div>
+    <div id="vnc-container">
+        <iframe src="http://localhost:6080/vnc.html?autoconnect=true&resize=scale" title="VNC Viewer"></iframe>
+    </div>
+
+    <script>
+        let ws;
+        let sessionId;
+        const chatHistory = document.getElementById('chat-history');
+        const messageInput = document.getElementById('message-input');
+        const sendBtn = document.getElementById('send-btn');
+
+        async function init() {
+            try {
+                // Fetch session ID
+                const response = await fetch('/sessions', { method: 'POST' });
+                const data = await response.json();
+                sessionId = data.session_id;
+                console.log("Session ID:", sessionId);
+
+                // Connect WebSocket
+                const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+                const wsUrl = `${protocol}//${window.location.host}/ws/${sessionId}`;
+                ws = new WebSocket(wsUrl);
+
+                ws.onopen = () => {
+                    console.log('Connected to WebSocket');
+                    appendSystemMessage("Connected to server.");
+                };
+
+                ws.onmessage = (event) => {
+                    const msg = JSON.parse(event.data);
+                    handleMessage(msg);
+                };
+
+                ws.onclose = () => {
+                    console.log('Disconnected');
+                    appendSystemMessage("Disconnected from server.");
+                };
+
+                ws.onerror = (error) => {
+                    console.error('WebSocket Error:', error);
+                    appendSystemMessage("WebSocket connection error.");
+                };
+
+            } catch (e) {
+                console.error("Initialization failed:", e);
+                appendSystemMessage("Failed to initialize session.");
+            }
+        }
+
+        function handleMessage(msg) {
+            console.log("Received:", msg);
+            if (msg.type === 'output') {
+                const content = msg.content;
+                if (content.type === 'text') {
+                    appendMessage('bot', content.text);
+                } else if (content.type === 'tool_use') {
+                    appendMessage('bot', `Tool Use: ${content.name}\nInput: ${JSON.stringify(content.input, null, 2)}`);
+                }
+            } else if (msg.type === 'tool_output') {
+                const content = msg.content;
+                let text = `Tool Output (${content.tool_id}):\n`;
+                if (content.output) text += content.output + "\n";
+                if (content.error) text += "Error: " + content.error + "\n";
+                if (content.base64_image) {
+                     // Display image if needed, for now just text or specialized block
+                     // appendImage(content.base64_image);
+                     text += "[Screenshot captured]";
+                }
+                appendToolOutput(text);
+            } else if (msg.type === 'error') {
+                appendSystemMessage("Error: " + msg.content);
+            }
+        }
+
+        function appendMessage(sender, text) {
+            const div = document.createElement('div');
+            div.className = `message ${sender}-message`;
+            div.textContent = text;
+            chatHistory.appendChild(div);
+            scrollToBottom();
+        }
+
+        function appendToolOutput(text) {
+             const div = document.createElement('div');
+            div.className = `message tool-output`;
+            div.textContent = text;
+            chatHistory.appendChild(div);
+            scrollToBottom();
+        }
+
+        function appendSystemMessage(text) {
+            const div = document.createElement('div');
+            div.className = 'error-message'; // Reusing error style for visibility
+            div.textContent = text;
+            div.style.color = '#666';
+            chatHistory.appendChild(div);
+            scrollToBottom();
+        }
+
+        function scrollToBottom() {
+            chatHistory.scrollTop = chatHistory.scrollHeight;
+        }
+
+        function sendMessage() {
+            const text = messageInput.value.trim();
+            if (!text || !ws) return;
+
+            const payload = {
+                type: 'message',
+                content: text
+            };
+            ws.send(JSON.stringify(payload));
+            appendMessage('user', text);
+            messageInput.value = '';
+        }
+
+        sendBtn.addEventListener('click', sendMessage);
+        messageInput.addEventListener('keypress', (e) => {
+            if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                sendMessage();
+            }
+        });
+
+        // Start
+        init();
+    </script>
+</body>
+</html>

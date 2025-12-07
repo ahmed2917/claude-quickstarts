@@ -3,3 +3,7 @@ anthropic[bedrock,vertex]>=0.39.0
 jsonschema==4.22.0
 boto3>=1.28.57
 google-auth<3,>=2
+fastapi==0.111.0
+uvicorn==0.30.1
+aiosqlite==0.20.0
+websockets>=12.0

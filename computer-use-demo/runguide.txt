@@ -1,0 +1,73 @@
+FastAPI Refactor Walkthrough
+Refactored the Computer Use Demo from a single-user Streamlit app to a multi-user FastAPI backend.
+
+Changes
+1. Requirements
+Updated 
+requirements.txt
+ to include:
+
+fastapi, uvicorn, aiosqlite, websockets.
+2. API Backend
+Created 
+computer_use_demo/api.py
+ containing:
+
+Session Management: 
+SessionManager
+ class to handle active user sessions and WebSockets.
+Data Persistence: aiosqlite integration to save chat history to chat_history.db.
+WebSocket Endpoint: /ws/{session_id} for real-time communication.
+Loop Adapter: 
+loop_wrapper
+ function that adapts the 
+sampling_loop
+ callbacks to send JSON messages over the WebSocket.
+3. Docker Entrypoint
+Modified 
+image/entrypoint.sh
+ to:
+
+Disable the conflicting HTTP server.
+Launch uvicorn on port 8080.
+Confirmed 
+start_all.sh
+ services (Xvfb) run in parallel with the FastAPI app.
+4. Callback Handling
+In 
+api.py
+, adapted 
+loop.py
+'s synchronous callbacks to schedule asynchronous WebSocket messages using asyncio.create_task.
+5. Frontend
+Added POST /sessions to generate unique session IDs.
+Served 
+static/index.html
+ at /.
+index.html
+ connects to WebSocket, displays chat interface, and embeds VNC at http://localhost:6080/vnc.html.
+Verification
+Automated Tests
+Created 
+tests/test_api.py
+ to verify WebSocket connection logic (requires installed dependencies to run).
+
+Manual Verification Steps
+Build Docker Image:
+docker build . -t computer-use-demo
+Run Container: IMPORTANT: You must expose port 6080 for VNC and 8080 for the API.
+docker run -it -p 8080:8080 -p 6080:6080 -e ANTHROPIC_API_KEY=your_key computer-use-demo
+Connect via WebSocket: Open http://localhost:8080 in your browser. or use wscat:
+wscat -c ws://localhost:8080/ws/session1
+Send Message:
+{"type": "message", "content": "Take a screenshot"}
+Check Output: You should receive JSON messages with type "output" or "tool_output".
+Architecture
+⚠️ Failed to render Mermaid diagram: Parse error on line 2
+graph TD
+    Client[Client (WebSocket)] <-->|JSON| API[FastAPI /ws/{session_id}]
+    API <--> SessionManager
+    API -->|wraps| Loop[sampling_loop]
+    Loop -->|callbacks| API
+    Loop -->|Tools| Computer[OS/Tools]
+    API -->|Async| DB[(SQLite chat_history)]
